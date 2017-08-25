@@ -3,6 +3,7 @@
 
 #include <map>
 #include <cstdint>
+#include <cstring>
 #include "treeregex_to_nfa.h"
 #include "tree.h"
 
@@ -12,8 +13,8 @@ struct match_results {
 	operator bool(){ return result; }
 };
 
-match_results matches(Matcher* m, Tree* t);
 namespace {
+match_results _matches(Matcher* m, Tree* t);
 NFA* get_cached_nfa(Matcher* m){
 	static std::map<Matcher*, NFA> cache;
 	auto it= cache.find(m);
@@ -31,10 +32,11 @@ void get_reverse_epsilon_path(NFA* nfa, int start, int end, std::vector<int>& to
 	set_of_positions[start] = true;
 	int final_id = nfa->highest_id;
 	//while(!set_of_positions[end]){
+	std::bitset<256> next_set_of_positions;
 	do{
 		//std::cout << "LOOP: " << history.size() << '\n';
 		assert(set_of_positions.count());
-		std::bitset<256> next_set_of_positions;
+		next_set_of_positions.reset();
 		history.push_back(std::array<char, 256>());
 		for(int i = 0; i < final_id+1; ++i){
 			if(!set_of_positions[i]) { continue; }
@@ -57,7 +59,9 @@ void get_reverse_epsilon_path(NFA* nfa, int start, int end, std::vector<int>& to
 	assert(to_add_to.back() == start);
 }
 
+int matches_nfa_depth = 0;
 match_results matches(NFA* nfa, Tree* t){
+	int depth = matches_nfa_depth++;
 	static int count = 1;
 	//std::cout << "MATCHING USING NFA!: " << count << "\n";
 	//nfa_to_dot(nfa,  count);
@@ -73,16 +77,25 @@ match_results matches(NFA* nfa, Tree* t){
 		uint8_t non_epsilon_pos;
 		uint8_t source;
 	};
-	std::vector<std::array<path_frag, 256>> history(lt->subtrees.size()+1);
+	//std::vector<std::array<path_frag, 256>> history(lt->subtrees.size()+1);
+
+	static std::vector<std::vector<std::array<path_frag, 256>>> saved_data;
+	if(saved_data.size() >= depth){ saved_data.push_back({});}
+	std::vector<std::array<path_frag, 256>>& history = saved_data[depth];
+	history.resize(lt->subtrees.size()+1);
+	std::memset(history.data(), 0, history.size()*sizeof(path_frag));
+
 	std::map<std::pair<int, int>, std::map<int, TreeSequence>> edge_to_captures;
 	int final_id = nfa->highest_id;
 
 	int tree_index = 0;
+	std::bitset<256> next_set_of_nfa_positions;
+	std::bitset<256> true_set_of_nfa_positions;
 	for(Tree* t : lt->subtrees){
-		std::bitset<256> next_set_of_nfa_positions;
+		next_set_of_nfa_positions.reset();
 		for(int i = 0; i < final_id+1; ++i){
 			if(!set_of_nfa_positions[i]){ continue; }
-			std::bitset<256> true_set_of_nfa_positions;
+			true_set_of_nfa_positions.reset();
 			true_set_of_nfa_positions[i] = true;
 
 			NFA_Node& n_s = nfa->g->nodes[i];
@@ -96,7 +109,7 @@ match_results matches(NFA* nfa, Tree* t){
 					if((e->val->toEpsilonMatcher())){
 						continue;
 					}
-					match_results ret = matches(e->val, t);
+					match_results ret = _matches(e->val, t);
 					if(ret.result){
 						next_set_of_nfa_positions[e->end.val.id] = true;
 						if(ret.captures.size()){
@@ -122,7 +135,7 @@ match_results matches(NFA* nfa, Tree* t){
 	bool ret = false;
 	for(int i = 0; i < final_id+1; ++i){
 		if(!set_of_nfa_positions[i]){ continue; }
-		std::bitset<256> true_set_of_nfa_positions;
+		true_set_of_nfa_positions.reset();
 		true_set_of_nfa_positions[i] = true;
 
 		NFA_Node& n_s = nfa->g->nodes[i];
@@ -196,9 +209,8 @@ match_results matches(NFA* nfa, Tree* t){
 	//std::cout << "NFA: " << ret_caps.size() << " from " << nfa->captures << '\n';
 	return {ret, ret_caps};
 }
-}
 
-match_results matches(Matcher* m, Tree* t){
+match_results _matches(Matcher* m, Tree* t){
 	//std::cout << "MATCHING: "; m->print(std::cout); std::cout << " against "; t->print(std::cout); std::cout << '\n';
 	ListOfTrees* lt = t->toListOfTrees();
 	StringLeaf* sl = nullptr;
@@ -273,7 +285,7 @@ match_results matches(Matcher* m, Tree* t){
 		int tree_index = 0;
 		for(Tree* t : lt->subtrees){
 			if((t->toListOfTrees())){
-				ret = matches(tm, t);
+				ret = _matches(tm, t);
 				if(ret.result) {
 					assert(ret.captures[tm->matching_group].trees.size()==1);
 					Context* co_inner = (ret.captures[tm->matching_group].trees[0])->toContext();
@@ -295,6 +307,12 @@ match_results matches(Matcher* m, Tree* t){
 	} else {
 		assert(false);
 	}
+}
+}
+
+match_results matches(Matcher* m, Tree* t){
+	matches_nfa_depth = 0;
+	return _matches(m, t);
 }
 
 #endif /* TREEREGEX_MATCHING_H */
