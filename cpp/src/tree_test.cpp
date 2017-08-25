@@ -3,6 +3,9 @@
 #include "tree.h"
 
 int main(){
+	tree::parse("(%()%)")->print(std::cout); std::cout << '\n';
+	tree::parse("(%\\(\\)%)")->print(std::cout); std::cout << '\n';
+	return 0;
 	tree::parse("(%abc%)")->print(std::cout); std::cout << '\n';
 	tree::parse("(%a(%b%)c%)")->print(std::cout); std::cout << '\n';
 	tree::parse("(%a(%%)c%)")->print(std::cout); std::cout << '\n';
@@ -24,7 +27,7 @@ int main(){
 	tree::parse_replacement("(%(%a%)$10a%)")->print(std::cout); std::cout << '\n';
 	tree::parse_replacement("(%(%a%)$10(%bc%)%)")->print(std::cout); std::cout << '\n';
 	tree::parse_replacement("(%a$10(%bc%)%)")->print(std::cout); std::cout << '\n';
-
+/*
 	std::cout << "STARTING REPLACEMENT REPLACING!\n";
 	std::vector<TreeSequence*> captures1, captures2;
 	TreeSequence* empty = new TreeSequence();
@@ -40,4 +43,5 @@ int main(){
 	tree::perform_replacement(tree::parse_replacement("(%(%a%)$2a%)"), captures2)->print(std::cout); std::cout << '\n';
 	tree::perform_replacement(tree::parse_replacement("(%(%a%)$2(%bc%)%)"), captures2)->print(std::cout); std::cout << '\n';
 	tree::perform_replacement(tree::parse_replacement("(%a$2(%bc%)%)"), captures2)->print(std::cout); std::cout << '\n';
+	*/
 }

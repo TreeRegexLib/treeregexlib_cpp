@@ -27,6 +27,7 @@ struct NFA {
 	NFA_Node* start;
 	NFA_Node* end;
 	int captures;
+	int highest_id;
 };
 
 namespace {
@@ -41,9 +42,13 @@ NFA_Node& _to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts);
 NFA_Node& to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
 	auto& ret =  _to_nfa(m, g, starts);
 	assert(starts.val.matching_group == 0 || m->matching_group == 0);
-	starts.val.matching_group = m->matching_group;
+	if(m->matching_group){
+		starts.val.matching_group = m->matching_group;
+	}
 	assert(ret.val.matching_group == 0 || m->matching_group == 0);
-	ret.val.matching_group = -m->matching_group;
+	if(m->matching_group){
+		ret.val.matching_group = -m->matching_group;
+	}
 	/*if(starts.val.matching_group != 0){
 		std::cout << "Assigning " << starts.val.id << " matching group " << starts.val.matching_group << '\n';
 	}
@@ -55,11 +60,22 @@ NFA_Node& to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
 }
 
 NFA_Node& _to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
-	CharacterSetMatcher* cm = dynamic_cast<CharacterSetMatcher*>(m);
-	StringMatcher* sm = dynamic_cast<StringMatcher*>(m);
-	TreeMatcher* tm = dynamic_cast<TreeMatcher*>(m);
-	EpsilonMatcher* em = dynamic_cast<EpsilonMatcher*>(m);
-	MatcherOperator* mo = dynamic_cast<MatcherOperator*>(m);
+	CharacterSetMatcher* cm = nullptr;
+	StringMatcher* sm = nullptr;
+	TreeMatcher* tm = nullptr;
+	EpsilonMatcher* em = nullptr;
+	MatcherOperator* mo = nullptr;
+
+	sm = (m)->toStringMatcher();
+	if(!sm){
+	tm = (m)->toTreeMatcher();
+	if(!tm){
+	em = (m)->toEpsilonMatcher();
+	if(!em){
+	cm = (m)->toCharacterSetMatcher();
+	if(!cm){
+	mo = (m)->toMatcherOperator();
+	}}}}
 	//std::cout << "Working on:"; m->print(std::cout); std::cout <<'\n';
 
 	std::vector<NFA_Node*> outs;
@@ -72,7 +88,11 @@ NFA_Node& _to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
 		assert(mo);
 		if(mo->type == &CONCATENATION){
 			//std::cout << "CONCAT\n";
-			return to_nfa(mo->after_or_right, g, to_nfa(mo->before_or_left, g, starts));
+
+			auto& end = addNodeWrap(g);
+			auto& end_tmp = to_nfa(mo->after_or_right, g, to_nfa(mo->before_or_left, g, starts));
+			g.addEdge(end_tmp, end, new EpsilonMatcher());
+			return end;
 		} else if(mo->type == &UNION){
 			//std::cout << "UNION\n";
 			auto& start1 = addNodeWrap(g);
@@ -132,7 +152,7 @@ NFA matcher_to_nfa(Matcher* m){
 					continue;
 				}
 				assert(e->val);
-				if(dynamic_cast<EpsilonMatcher*>(e->val)){
+				if((e->val->toEpsilonMatcher())){
 					// if that node is done, we can just accumulate its epsilon closure
 					if(done_nodes[to_add.val.id]){
 						n.val.epsilon_closure |= to_add.val.epsilon_closure;
@@ -146,7 +166,7 @@ NFA matcher_to_nfa(Matcher* m){
 		done_nodes[n.val.id] = true;
 	}
 
-	return {g, &start, &end, max_matching_group+1};
+	return {g, &start, &end, max_matching_group, Node_id_count-1};
 }
 
 void nfa_to_dot(NFA* nfa, int id = -1){

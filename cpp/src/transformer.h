@@ -17,20 +17,39 @@ public:
 		to_do.push_back([=](Tree* t){
 				if(pred(t)){
 					auto ret = matches(m, t);
+					//m->print(std::cout); std::cout << " with "; t->print(std::cout); std::cout << '\n';
+					//std::cout << "ret : " << ret.result << '\n';
 					if(!ret.result){ return t; }
 					mod(ret.captures);
-					return tree::perform_replacement(t, ret.captures);
+					//std::cout << "Captures:\n";
+					//for(auto& p : ret.captures){ std::cout << p .first ; p.second.print(std::cout); std::cout << '\n';}
+					Tree* out = tree::perform_replacement(r, ret.captures);
+					//std::cout << "AFTER: " ; out->print(std::cout) ; std::cout <<'\n';
+					//exit(1);
+					return out;
 				}
 				return t;
 			});
+	}
+
+	void add(std::function<bool(Tree*)> pred, const std::string m, std::function<void(std::map<int, TreeSequence>&)> mod, const std::string r, bool is_pre){
+		add(pred, treeregex::parse(m), mod, tree::parse_replacement(r), is_pre);
 	}
 
 	void add(Matcher* m, std::function<void(std::map<int, TreeSequence>&)> mod, Tree* r, bool is_pre){
 		add(default_pred, m, mod, r, is_pre);
 	}
 
+	void add(const std::string m, std::function<void(std::map<int, TreeSequence>&)> mod, const std::string r, bool is_pre){
+		return add(treeregex::parse(m), mod, tree::parse_replacement(r), is_pre);
+	}
+
 	void add(Matcher* m, Tree* r, bool is_pre){
 		add(default_pred, m, default_mod, r, is_pre);
+	}
+
+	void add(const std::string m, const std::string r, bool is_pre){
+		add(default_pred, treeregex::parse(m), default_mod, tree::parse_replacement(r), is_pre);
 	}
 
 	void add(Matcher* m, std::function<void(std::map<int, TreeSequence>&)> mod, Tree* r){
@@ -38,9 +57,17 @@ public:
 		add(default_pred, m, mod, r, true);
 	}
 
+	void add(const std::string m, std::function<void(std::map<int, TreeSequence>&)> mod, const std::string r){
+		add(treeregex::parse(m), mod, tree::parse_replacement(r));
+	}
+
 	void add(Matcher* p, Tree* r){
 		add(p, r, false);
 		add(p, r, true);
+	}
+
+	void add(const std::string p, const std::string r){
+		add(treeregex::parse(p), tree::parse_replacement(r));
 	}
 
 	void add(Matcher* m, std::function<Tree*(std::map<int, TreeSequence>&)> mod, bool is_pre){
@@ -54,9 +81,32 @@ public:
 			});
 	}
 
+	void add(const std::string m , std::function<Tree*(std::map<int, TreeSequence>&)> mod, bool is_pre){
+		add(treeregex::parse(m), mod, is_pre);
+	}
+
+	void add(Matcher* m, std::function<void(std::map<int, TreeSequence>&, bool)> mod, bool is_pre){
+		auto& to_do = (is_pre)? pre: post;
+		to_do.push_back([=](Tree* t){
+				auto ret = matches(m, t);
+				if(ret.result){
+					mod(ret.captures, true);
+				}
+				return t;
+			});
+	}
+
+	void add(const std::string m , std::function<void(std::map<int, TreeSequence>&, bool)> mod, bool is_pre){
+		add(treeregex::parse(m), mod, is_pre);
+	}
+
 	void add(Matcher* m, std::function<Tree*(std::map<int, TreeSequence>&)> mod){
 		add(m, mod, false);
 		add(m, mod, true);
+	}
+
+	void add(const std::string m_, std::function<Tree*(std::map<int, TreeSequence>&)> mod){
+		add(treeregex::parse(m_), mod);
 	}
 
 	template<typename T1, typename T2,  typename... Rest>
@@ -93,9 +143,9 @@ public:
 	}
 private:
 	Tree* recurse(Tree* val){
-		ListOfTrees* lt = dynamic_cast<ListOfTrees*>(val);
+		ListOfTrees* lt = val->toListOfTrees();
 		if(!lt){
-			assert(dynamic_cast<StringLeaf*>(val));
+			assert(val->toStringLeaf());
 			return val;
 		}
 		for(int i = 0; i < lt->subtrees.size(); ++i){
@@ -103,8 +153,9 @@ private:
 		}
 		return lt;
 	}
+
 public:
-	Tree* operator()(Tree* val){ // inplace modification
+	Tree* operator()(Tree* val){
 		for(auto& f : pre){
 			val = f(val);
 		}

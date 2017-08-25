@@ -11,16 +11,24 @@
 
 const std::vector<std::string> large_tokens = {CONTEXT_OPEN, CONTEXT_CLOSE, EXACT_OPEN, EXACT_CLOSE};
 
-//TODO: implement...
-std::string escape(const std::string& in){ return in; }
-std::string unescape(const std::string& in){ return in; }
-
 namespace { int matcher_group = 1; }
+
+struct StringMatcher;
+struct EpsilonMatcher;
+struct TreeMatcher;
+struct MatcherOperator;
+struct CharacterSetMatcher;
+
 struct Matcher {
 	int matching_group;
 	Matcher():matching_group(0){}
 	virtual void print(std::ostream&) = 0;
 	virtual ~Matcher(){}
+	virtual StringMatcher* toStringMatcher(){ return nullptr; }
+	virtual EpsilonMatcher* toEpsilonMatcher(){ return nullptr; }
+	virtual TreeMatcher* toTreeMatcher(){ return nullptr; }
+	virtual MatcherOperator* toMatcherOperator(){ return nullptr; }
+	virtual CharacterSetMatcher* toCharacterSetMatcher(){ return nullptr; }
 };
 
 struct StringMatcher : public Matcher {
@@ -34,6 +42,7 @@ struct StringMatcher : public Matcher {
 	virtual void print(std::ostream& out){
 		out << escape(regex);
 	}
+	virtual StringMatcher* toStringMatcher(){ return this; }
 };
 
 struct CharacterSetMatcher : public Matcher {
@@ -48,6 +57,7 @@ struct CharacterSetMatcher : public Matcher {
 		}
 		out << "]";
 	}
+	virtual CharacterSetMatcher* toCharacterSetMatcher(){ return this; }
 };
 
 struct EpsilonMatcher : public Matcher {
@@ -68,6 +78,7 @@ struct EpsilonMatcher : public Matcher {
 	virtual void print(std::ostream& out){
 		out << "<epsilon>";
 	}
+	virtual EpsilonMatcher* toEpsilonMatcher(){ return this; }
 };
 
 struct TreeMatcher :public Matcher {
@@ -89,6 +100,7 @@ struct TreeMatcher :public Matcher {
 		}
 	}
 	~TreeMatcher(){ delete body; }
+	virtual TreeMatcher* toTreeMatcher(){ return this; }
 };
 
 // supports star, union, concatenation
@@ -118,6 +130,7 @@ struct MatcherOperator : public Matcher {
 		}
 	}
 	~MatcherOperator(){ delete before_or_left; delete after_or_right; }
+	virtual MatcherOperator* toMatcherOperator(){ return this; }
 };
 
 namespace  {
@@ -159,16 +172,27 @@ int assertAndEatNextToken(const std::string& str, int i, const std::string& v){
 std::pair<CharacterSetMatcher*, int> parse_char_set(const std::string& str, int i=0){
 	bool is_first_token = true;
 	auto* out = new CharacterSetMatcher();
+	char last_added;
 	while (i < str.length()) {
 		if(is_first_token && nextToken(str, i) == CHAR_CLASS_NEG){
 			out->negation = true;
 			i+= CHAR_CLASS_NEG.length();
 		} else if(nextToken(str, i) == CHAR_CLASS_CLOSE){
 			break;
+		} else if(nextToken(str, i) == CHAR_CLASS_INC){
+			i+= CHAR_CLASS_INC.length();
+			std::string to_add = nextToken(str, i);
+			i+= to_add.length();
+			assert(unescape(to_add).length() == 1);
+			for(char c = last_added; c <= unescape(to_add)[0]; ++c){
+				last_added = c;
+				out->values[static_cast<uint8_t>(c)] = true;
+			}
 		} else {
 			std::string to_add = nextToken(str, i);
 			i+= to_add.length();
 			for(char c: unescape(to_add)){
+				last_added = c;
 				out->values[static_cast<uint8_t>(c)] = true;
 			}
 		}
@@ -211,7 +235,7 @@ std::pair<Matcher*,int> __parse(const std::string& str, int i ){
 				last_out = out;
 				out = new MatcherOperator(&KLEENE_STAR, out);
 			} else {
-				MatcherOperator* mo = dynamic_cast<MatcherOperator*>(out);
+				MatcherOperator* mo = (out)->toMatcherOperator();
 				assert(mo);
 				if(mo->type == &KLEENE_STAR){
 					last_out = out;
@@ -258,7 +282,7 @@ std::pair<Matcher*,int> __parse(const std::string& str, int i ){
 				i+=ALL_CHARS.length();
 		} else {
 			// semi-hack to save on space
-			/*if(StringMatcher* out_str = dynamic_cast<StringMatcher*>(out)){
+			/*if(StringMatcher* out_str = (out)->toStringMatcher()){
 				std::string tok = nextToken(str, i);
 				out_str->addToken(tok);
 				i+=tok.length();

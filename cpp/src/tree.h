@@ -11,6 +11,11 @@
 #include "constants.h"
 
 
+struct ListOfTrees;
+struct Hole;
+struct Context;
+struct ContextHole;
+struct StringLeaf;
 struct Tree {
 	virtual void print(std::ostream& out, int tabs=0) = 0;
 	virtual std::string str(){
@@ -18,6 +23,11 @@ struct Tree {
 		this->print(ost);
 		return ost.str();
 	}
+	virtual ListOfTrees* toListOfTrees(){ return nullptr; }
+	virtual Hole* toHole(){ return nullptr; }
+	virtual Context* toContext(){ return nullptr; }
+	virtual StringLeaf* toStringLeaf(){ return nullptr; }
+	virtual ContextHole* toContextHole(){ return nullptr; }
 };
 
 struct TreeSequence {
@@ -26,6 +36,11 @@ struct TreeSequence {
 		for(Tree* t : trees){
 			t->print(out, tabs);
 		}
+	}
+	std::string str(){
+		std::ostringstream ost;
+		this->print(ost);
+		return ost.str();
 	}
 };
 
@@ -42,6 +57,7 @@ struct ListOfTrees : public Tree {
 		out << TREE_CLOSE;
 		//out << '\n';
 	}
+	virtual ListOfTrees* toListOfTrees(){ return this; }
 };
 
 struct Hole : public Tree {
@@ -52,6 +68,7 @@ struct Hole : public Tree {
 		out << '$' << hole_id;
 		//out << '\n';
 	}
+	virtual Hole* toHole(){ return this; }
 };
 
 struct Context : public Tree {
@@ -72,7 +89,7 @@ struct Context : public Tree {
 		ListOfTrees* out = new ListOfTrees();
 		int context_count = 0;
 		for(Tree* t : subtrees){
-			Context* ct = dynamic_cast<Context*>(t);
+			Context* ct = t->toContext();
 			if(ct){
 				context_count++;
 				out->subtrees.push_back(ct->replace(v));
@@ -83,6 +100,7 @@ struct Context : public Tree {
 		assert(context_count==1);
 		return out;
 	}
+	virtual Context* toContext(){ return this; }
 };
 
 struct ContextHole : public Context {
@@ -93,18 +111,20 @@ struct ContextHole : public Context {
 	}
 
 	virtual Tree* replace(Tree* v){ return v;}
+	virtual ContextHole* toContextHole(){ return this; }
 };
 
 struct StringLeaf : public Tree {
 	std::string text;
-	StringLeaf(const std::string&& s):text(s){}
-	StringLeaf(const std::string& s):text(s){}
+	StringLeaf(const std::string&& s):text(unescape(s)){}
+	StringLeaf(const std::string& s):text(unescape(s)){}
 
 	virtual void print(std::ostream& out, int tabs=0){
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
-		out << text;
+		out << escape(text);
 		//out << '\n';
 	}
+	virtual StringLeaf* toStringLeaf(){ return this; }
 };
 
 
@@ -152,6 +172,7 @@ bool isAlpha(const std::string& s){
 
 std::pair<Tree*,int> _parse(const std::string& str, int i = 0, bool has_holes = false){
 	//std::cout << "Working on: " << str.substr(i) << '\n';
+	//std::cout << "Working on: " << i << ' ' << str.substr(i, std::min(10, int(str.length())-i-1)) << '\n';
 	i = assertAndEatNextToken(str, i, TREE_OPEN);
 	ListOfTrees* out = new ListOfTrees();
 
@@ -161,6 +182,7 @@ std::pair<Tree*,int> _parse(const std::string& str, int i = 0, bool has_holes = 
 			out->subtrees.push_back(p.first);
 			i = p.second;
 		} else if(has_holes && nextToken(str,i) == HOLE){
+			int temp = i;
 			i = assertAndEatNextToken(str, i, HOLE);
 			std::string num;
 			while(isAlpha(nextToken(str, i))){
@@ -168,6 +190,7 @@ std::pair<Tree*,int> _parse(const std::string& str, int i = 0, bool has_holes = 
 				i+= tok.length();
 				num+= tok;
 			}
+			//std::cout << "NUM: " << num << ' ' << temp << ' ' << str.substr(temp, 10) << std::endl;
 			out->subtrees.push_back(new Hole(stoi(num)));
 		} else {
 			std::string tok = nextToken(str, i);
@@ -185,39 +208,40 @@ Tree* parse_replacement(const std::string& str){
 	assert(p.second == str.length() && "Parsing finished, but characters remained!");
 	return p.first;
 }
-
 Tree* parse(const std::string& str){
 	auto p = _parse(str);
+	//std::cout << str.substr(p.second) << '\n';
+	//std::cout << (p.second == str.length()) << ' ' << p.second << ' '<< str.length() << std::endl;
 	assert(p.second == str.length() && "Parsing finished, but characters remained!");
 	return p.first;
 }
 
 Tree* perform_replacement(Tree* in, std::map<int, TreeSequence>& captures){
-	Hole* ho = dynamic_cast<Hole*>(in);
+	Hole* ho = in->toHole();
 	if(ho){
 		assert(captures[ho->hole_id].trees.size()==1);
-		assert(!dynamic_cast<Context*>(captures[ho->hole_id].trees[0]));
+		assert(!(captures[ho->hole_id].trees[0]->toContext()));
 		return captures[ho->hole_id].trees[0];
 	}
 
-	ListOfTrees* lt = dynamic_cast<ListOfTrees*>(in);
+	ListOfTrees* lt = in->toListOfTrees();
 	if(!lt){
-		assert(dynamic_cast<StringLeaf*>(in));
+		assert(in->toStringLeaf());
 		return in;
 	}
 
 	ListOfTrees* out = new ListOfTrees();
 	std::vector<int> positions;
 	for(Tree* t : lt->subtrees){
-		Hole* ht = dynamic_cast<Hole*>(t);
-		ListOfTrees* ltt = dynamic_cast<ListOfTrees*>(t);
+		Hole* ht = t->toHole();
+		ListOfTrees* ltt = t->toListOfTrees();
 		if(ht){
 			for(Tree* t2 : captures[ht->hole_id].trees){
 				out->subtrees.push_back(t2);
 				Context* co = nullptr;
 				while(out->subtrees.size()>1 &&
-						(co = dynamic_cast<Context*>(*(out->subtrees.end()-2))) &&
-						!(dynamic_cast<Context*>(out->subtrees.back()))
+						(co = (*(out->subtrees.end()-2))->toContext()) &&
+						!((out->subtrees.back()->toContext()))
 						){
 					Tree* t = out->subtrees.back();
 					out->subtrees.pop_back();
@@ -227,14 +251,14 @@ Tree* perform_replacement(Tree* in, std::map<int, TreeSequence>& captures){
 		} else if(ltt){
 			out->subtrees.push_back(perform_replacement(ltt, captures));
 		} else {
-			assert(dynamic_cast<StringLeaf*>(t));
+			assert((t->toStringLeaf()));
 			out->subtrees.push_back(t);
 		}
 
 		Context* co = nullptr;
 		while(out->subtrees.size()>1 &&
-				(co = dynamic_cast<Context*>(*(out->subtrees.end()-2))) &&
-				!(dynamic_cast<Context*>(out->subtrees.back()))
+				(co = (*(out->subtrees.end()-2))->toContext()) &&
+				!((out->subtrees.back())->toContext())
 			){
 			Tree* t = out->subtrees.back();
 			out->subtrees.pop_back();

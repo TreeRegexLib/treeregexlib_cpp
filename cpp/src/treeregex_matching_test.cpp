@@ -31,6 +31,13 @@ int main(){
 	std::cout << "CAPTURES TEST:\n";
 	print_matching_results(matches(treeregex::parse("(&(@|a)*&)"), tree::parse("(%(%a(%b%)%)bc%)")));
 	print_matching_results(matches(treeregex::parse("(%(@|.)*%)"), tree::parse("(%aaa%)")));
+	print_matching_results(matches(treeregex::parse("(%([a-z]*)%)"), tree::parse("(%bc%)")));
+	print_matching_results(matches(treeregex::parse("(%([a-z]*)%)"), tree::parse("(%abz%)")));
+	print_matching_results(matches(treeregex::parse("(%\\(\\)%)"), tree::parse("(%()%)")));
+	print_matching_results(matches(treeregex::parse("(%\\(\\)%)"), tree::parse("(%\\(\\)%)")));
+	print_matching_results(matches(treeregex::parse("(%()%)"), tree::parse("(%\\(\\)%)")));
+	print_matching_results(matches(treeregex::parse("(%BC--:return\\(@\\)%)"),
+				tree::parse("(%BC--:return((%BC--:(%BC--:s%)((%BC--:(%BC--:(%BC--:(%BC--:x%)%)%)%))%))%)")));
 
 	std::cout << "REPLACING TEST:\n";
 	print_perform_matches(

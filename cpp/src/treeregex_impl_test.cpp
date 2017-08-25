@@ -2,6 +2,9 @@
 #include "treeregex_impl.h"
 
 int main(){
+	treeregex::parse("\\(\\)")->print(std::cout); std::cout << '\n';
+	treeregex::parse("()")->print(std::cout); std::cout << '\n';
+	treeregex::parse("[a-z]*")->print(std::cout); std::cout << '\n';
 	treeregex::parse("(@|.)*")->print(std::cout); std::cout << '\n';
 	treeregex::parse("abc(@|.|a*|b|c*|d)*def")->print(std::cout); std::cout << '\n';
 	treeregex::parse("(@*)")->print(std::cout); std::cout << '\n';

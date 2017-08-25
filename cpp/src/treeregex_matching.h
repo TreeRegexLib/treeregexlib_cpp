@@ -29,17 +29,18 @@ void get_reverse_epsilon_path(NFA* nfa, int start, int end, std::vector<int>& to
 
 	//std::cout << "GET_PATH: " << start <<  ' ' << end << '\n';
 	set_of_positions[start] = true;
+	int final_id = nfa->highest_id;
 	//while(!set_of_positions[end]){
 	do{
 		//std::cout << "LOOP: " << history.size() << '\n';
 		assert(set_of_positions.count());
 		std::bitset<256> next_set_of_positions;
 		history.push_back(std::array<char, 256>());
-		for(int i = 0; i < set_of_positions.size(); ++i){
+		for(int i = 0; i < final_id+1; ++i){
 			if(!set_of_positions[i]) { continue; }
 			NFA_Node& n = nfa->g->nodes[i];
 			for(NFA_Edge* e : n.outgoing_edges){
-				if(!dynamic_cast<EpsilonMatcher*>(e->val)){ continue; }
+				if(!(e->val->toEpsilonMatcher())){ continue; }
 				next_set_of_positions[e->end.val.id] = true;
 				history.back()[e->end.val.id] = i;
 			}
@@ -57,8 +58,11 @@ void get_reverse_epsilon_path(NFA* nfa, int start, int end, std::vector<int>& to
 }
 
 match_results matches(NFA* nfa, Tree* t){
-	nfa_to_dot(nfa,  99);
-	ListOfTrees* lt = dynamic_cast<ListOfTrees* >(t);
+	static int count = 1;
+	//std::cout << "MATCHING USING NFA!: " << count << "\n";
+	//nfa_to_dot(nfa,  count);
+	count++;
+	ListOfTrees* lt = t->toListOfTrees();
 	assert(lt);
 
 	std::bitset<256> set_of_nfa_positions;
@@ -71,32 +75,36 @@ match_results matches(NFA* nfa, Tree* t){
 	};
 	std::vector<std::array<path_frag, 256>> history(lt->subtrees.size()+1);
 	std::map<std::pair<int, int>, std::map<int, TreeSequence>> edge_to_captures;
+	int final_id = nfa->highest_id;
 
 	int tree_index = 0;
 	for(Tree* t : lt->subtrees){
 		std::bitset<256> next_set_of_nfa_positions;
-		for(int i = 0; i < set_of_nfa_positions.size(); ++i){
+		for(int i = 0; i < final_id+1; ++i){
 			if(!set_of_nfa_positions[i]){ continue; }
 			std::bitset<256> true_set_of_nfa_positions;
 			true_set_of_nfa_positions[i] = true;
 
 			NFA_Node& n_s = nfa->g->nodes[i];
 			true_set_of_nfa_positions |= n_s.val.epsilon_closure;
-			for(int j = 0; j < true_set_of_nfa_positions.size(); ++j){
+			for(int j = 0; j < final_id+1; ++j){
 				if(!true_set_of_nfa_positions[j]){continue; }
 
 				//std::cout << '\t' << j << '\n';
 				NFA_Node& n = nfa->g->nodes[j];
 				for(NFA_Edge* e : n.outgoing_edges){
-					if(dynamic_cast<EpsilonMatcher*>(e->val)){
+					if((e->val->toEpsilonMatcher())){
 						continue;
 					}
 					match_results ret = matches(e->val, t);
 					if(ret.result){
 						next_set_of_nfa_positions[e->end.val.id] = true;
-						edge_to_captures.emplace(
+						if(ret.captures.size()){
+							edge_to_captures.emplace(
 								std::make_pair(std::make_pair(e->begin.val.id, e->end.val.id),
 								std::move(ret.captures)));
+							//std::cout << "INSERTING: " << e->begin.val.id << ' ' <<  e->end.val.id << ' ' << edge_to_captures.size() << '\n';
+						}
 						history[tree_index][e->end.val.id].non_epsilon_pos = j+1;
 						history[tree_index][e->end.val.id].source = i+1;
 					}
@@ -112,7 +120,7 @@ match_results matches(NFA* nfa, Tree* t){
 	}
 
 	bool ret = false;
-	for(int i = 0; i < set_of_nfa_positions.size(); ++i){
+	for(int i = 0; i < final_id+1; ++i){
 		if(!set_of_nfa_positions[i]){ continue; }
 		std::bitset<256> true_set_of_nfa_positions;
 		true_set_of_nfa_positions[i] = true;
@@ -150,9 +158,11 @@ match_results matches(NFA* nfa, Tree* t){
 		while(last_processed_find_path_pos != find_path_rev.size()){
 			int node_id = find_path_rev[last_processed_find_path_pos];
 			if(last_processed_find_path_pos>=1){
-				int old_node_id = find_path_rev[last_processed_find_path_pos-1];
-				auto p = std::make_pair(old_node_id, node_id);
+				int farther_along_node_id = find_path_rev[last_processed_find_path_pos-1];
+				auto p = std::make_pair(node_id, farther_along_node_id);
+				//std::cout << "EDGE CAPTURE CHECK: " << node_id << ' ' << farther_along_node_id << ' ' << edge_to_captures.size() << '\n';
 				for(auto& captures : edge_to_captures[p]){
+					//std::cout << "FOUND CAPTURE!\n";
 					ret_caps.insert(captures);
 				}
 			}
@@ -189,14 +199,29 @@ match_results matches(NFA* nfa, Tree* t){
 }
 
 match_results matches(Matcher* m, Tree* t){
-	ListOfTrees* lt = dynamic_cast<ListOfTrees*>(t);
-	StringLeaf* sl = dynamic_cast<StringLeaf*>(t);
+	//std::cout << "MATCHING: "; m->print(std::cout); std::cout << " against "; t->print(std::cout); std::cout << '\n';
+	ListOfTrees* lt = t->toListOfTrees();
+	StringLeaf* sl = nullptr;
+	if(!lt){
+		sl = t->toStringLeaf();
+	}
 
-	StringMatcher* sm = dynamic_cast<StringMatcher*>(m);
-	EpsilonMatcher* em = dynamic_cast<EpsilonMatcher*>(m);
-	TreeMatcher* tm = dynamic_cast<TreeMatcher*>(m);
-	MatcherOperator* mo = dynamic_cast<MatcherOperator*>(m);
-	CharacterSetMatcher* cm = dynamic_cast<CharacterSetMatcher*>(m);
+	StringMatcher* sm = nullptr;
+	EpsilonMatcher* em = nullptr;
+	TreeMatcher* tm  = nullptr;
+	MatcherOperator* mo = nullptr;
+	CharacterSetMatcher* cm = nullptr;
+
+	sm = (m)->toStringMatcher();
+	if(!sm){
+	em = (m)->toEpsilonMatcher();
+	if(!em){
+	tm = (m)->toTreeMatcher();
+	if(!tm){
+	mo = (m)->toMatcherOperator();
+	if(!mo){
+	cm = (m)->toCharacterSetMatcher();
+	}}}}
 
 	assert(sm || em || tm || mo || cm);
 
@@ -209,7 +234,8 @@ match_results matches(Matcher* m, Tree* t){
 		return matches(p, lt_temp);
 	} else if(sm){
 		if(!sl){ return {false,{}}; }
-		return {sl->text == sm->regex, {}};
+		//return {sl->text == sm->regex, {}};
+		return {sl->text[0] == sm->regex[0], {}};
 	} else if(cm){
 		if(!sl){ return {false,{}}; }
 		if(sl->text.length() != 1){ return {false, {}};}
@@ -246,11 +272,11 @@ match_results matches(Matcher* m, Tree* t){
 		assert(tm->type == &CONTEXT_OPEN);
 		int tree_index = 0;
 		for(Tree* t : lt->subtrees){
-			if(dynamic_cast<ListOfTrees*>(t)){
+			if((t->toListOfTrees())){
 				ret = matches(tm, t);
 				if(ret.result) {
 					assert(ret.captures[tm->matching_group].trees.size()==1);
-					Context* co_inner = dynamic_cast<Context*>(ret.captures[tm->matching_group].trees[0]);
+					Context* co_inner = (ret.captures[tm->matching_group].trees[0])->toContext();
 					assert(co_inner);
 					co->subtrees[tree_index] = co_inner;
 					ret.captures[tm->matching_group] = {{co}};
