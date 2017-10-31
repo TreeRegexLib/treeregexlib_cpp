@@ -119,7 +119,6 @@ match_results matches(NFA* nfa, std::shared_ptr<Tree> t){
 							//std::cout << "INSERTING: " << e->begin.val.id << ' ' <<  e->end.val.id << ' ' << edge_to_captures.size() << '\n';
 						}
 						assert(depth < saved_data.size());
-						std::cerr << '\t' << depth << '\t' << saved_data.size() << '\n';
 						history = saved_data[depth];
 						history[tree_index][e->end.val.id].non_epsilon_pos = j+1;
 						history[tree_index][e->end.val.id].source = i+1;
