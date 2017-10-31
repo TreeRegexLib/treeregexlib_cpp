@@ -11,7 +11,7 @@ void print_matching_results(match_results&& mr){
 	}
 }
 
-void print_perform_matches(match_results&& mr, Tree* replacement_tree){
+void print_perform_matches(match_results&& mr, std::shared_ptr<Tree> replacement_tree){
 	if(mr.result)
 	tree::perform_replacement(replacement_tree, mr.captures)->print(std::cout); std::cout << '\n';
 }

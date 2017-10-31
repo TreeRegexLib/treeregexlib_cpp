@@ -7,7 +7,7 @@
 
 int main(int argc, char** argv){
 	std::ios_base::sync_with_stdio(false);
-	Tree* tree = tree::parse("(%let t1 = (% let b = (% 3 %) %)%)");
+	auto tree = tree::parse("(%let t1 = (% let b = (% 3 %) %)%)");
 
 	Transformer t;
 	std::map<std::string, std::string> mapping = {{"t1", "t0"}};

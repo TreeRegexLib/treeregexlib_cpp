@@ -43,7 +43,6 @@ void nfa_to_dot(NFA&& nfa){
 
 int main(){
 	nfa_to_dot(matcher_to_nfa(treeregex::parse("(@|.)*"))); //
-	return 0;
 
 	nfa_to_dot(matcher_to_nfa(treeregex::parse("(a(a)a)*|aaaa"))); //
 	nfa_to_dot(matcher_to_nfa(treeregex::parse("abc(@|.|a*|b|c*|d)*def"))); //
