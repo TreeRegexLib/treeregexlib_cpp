@@ -14,9 +14,9 @@ struct match_results {
 };
 
 namespace {
-match_results _matches(Matcher* m, Tree* t);
-NFA* get_cached_nfa(Matcher* m){
-	static std::map<Matcher*, NFA> cache;
+match_results _matches(std::shared_ptr<Matcher> m, std::shared_ptr<Tree> t);
+NFA* get_cached_nfa(std::shared_ptr<Matcher> m){
+	static std::map<std::shared_ptr<Matcher>, NFA> cache;
 	auto it= cache.find(m);
 	if(it == cache.end()){
 		cache[m] = matcher_to_nfa(m);
@@ -60,13 +60,13 @@ void get_reverse_epsilon_path(NFA* nfa, int start, int end, std::vector<int>& to
 }
 
 int matches_nfa_depth = 0;
-match_results matches(NFA* nfa, Tree* t){
+match_results matches(NFA* nfa, std::shared_ptr<Tree> t){
 	int depth = matches_nfa_depth++;
 	static int count = 1;
 	//std::cout << "MATCHING USING NFA!: " << count << "\n";
 	//nfa_to_dot(nfa,  count);
 	count++;
-	ListOfTrees* lt = t->toListOfTrees();
+	std::shared_ptr<ListOfTrees> lt = t->toListOfTrees();
 	assert(lt);
 
 	std::bitset<256> set_of_nfa_positions;
@@ -79,7 +79,7 @@ match_results matches(NFA* nfa, Tree* t){
 	};
 	//std::vector<std::array<path_frag, 256>> history(lt->subtrees.size()+1);
 
-	static std::vector<std::vector<std::array<path_frag, 256>>> saved_data;
+	static std::deque<std::vector<std::array<path_frag, 256>>> saved_data;
 	if(saved_data.size() >= depth){ saved_data.push_back({});}
 	std::vector<std::array<path_frag, 256>>& history = saved_data[depth];
 	history.resize(lt->subtrees.size()+1);
@@ -91,7 +91,7 @@ match_results matches(NFA* nfa, Tree* t){
 	int tree_index = 0;
 	std::bitset<256> next_set_of_nfa_positions;
 	std::bitset<256> true_set_of_nfa_positions;
-	for(Tree* t : lt->subtrees){
+	for(std::shared_ptr<Tree> t : lt->subtrees){
 		next_set_of_nfa_positions.reset();
 		for(int i = 0; i < final_id+1; ++i){
 			if(!set_of_nfa_positions[i]){ continue; }
@@ -118,6 +118,9 @@ match_results matches(NFA* nfa, Tree* t){
 								std::move(ret.captures)));
 							//std::cout << "INSERTING: " << e->begin.val.id << ' ' <<  e->end.val.id << ' ' << edge_to_captures.size() << '\n';
 						}
+						assert(depth < saved_data.size());
+						std::cerr << '\t' << depth << '\t' << saved_data.size() << '\n';
+						history = saved_data[depth];
 						history[tree_index][e->end.val.id].non_epsilon_pos = j+1;
 						history[tree_index][e->end.val.id].source = i+1;
 					}
@@ -200,7 +203,7 @@ match_results matches(NFA* nfa, Tree* t){
 
 	for(auto& p : captures_by_index){
 		//std::cout << p.first << ": " << p.second.tree_index_start << ' ' << p.second.tree_index_end << '\n';
-		ret_caps[p.first] = { std::vector<Tree*>(
+		ret_caps[p.first] = { std::vector<std::shared_ptr<Tree>>(
 				lt->subtrees.begin()+p.second.tree_index_start,
 				lt->subtrees.begin()+p.second.tree_index_end
 				)};
@@ -210,19 +213,19 @@ match_results matches(NFA* nfa, Tree* t){
 	return {ret, ret_caps};
 }
 
-match_results _matches(Matcher* m, Tree* t){
+match_results _matches(std::shared_ptr<Matcher> m, std::shared_ptr<Tree> t){
 	//std::cout << "MATCHING: "; m->print(std::cout); std::cout << " against "; t->print(std::cout); std::cout << '\n';
-	ListOfTrees* lt = t->toListOfTrees();
-	StringLeaf* sl = nullptr;
+	std::shared_ptr<ListOfTrees> lt = t->toListOfTrees();
+	std::shared_ptr<StringLeaf> sl = nullptr;
 	if(!lt){
 		sl = t->toStringLeaf();
 	}
 
-	StringMatcher* sm = nullptr;
-	EpsilonMatcher* em = nullptr;
-	TreeMatcher* tm  = nullptr;
-	MatcherOperator* mo = nullptr;
-	CharacterSetMatcher* cm = nullptr;
+	std::shared_ptr<StringMatcher> sm = nullptr;
+	std::shared_ptr<EpsilonMatcher> em = nullptr;
+	std::shared_ptr<TreeMatcher> tm  = nullptr;
+	std::shared_ptr<MatcherOperator> mo = nullptr;
+	std::shared_ptr<CharacterSetMatcher> cm = nullptr;
 
 	sm = (m)->toStringMatcher();
 	if(!sm){
@@ -241,7 +244,7 @@ match_results _matches(Matcher* m, Tree* t){
 		//get or do compilation
 		// run graph matching algo
 		NFA* p = get_cached_nfa(mo);
-		ListOfTrees* lt_temp = new ListOfTrees();
+		std::shared_ptr<ListOfTrees> lt_temp = std::make_shared<ListOfTrees>();
 		lt_temp->subtrees.push_back(t);
 		return matches(p, lt_temp);
 	} else if(sm){
@@ -274,21 +277,21 @@ match_results _matches(Matcher* m, Tree* t){
 		else if(ret.result){
 			assert(tm->type == &CONTEXT_OPEN);
 			assert(tm->matching_group != 0);
-			ret.captures[tm->matching_group] = {{ new ContextHole() }};
+			ret.captures[tm->matching_group] = {{ std::make_shared<ContextHole>() }};
 			return ret;
 		}
 		assert(tm->matching_group != 0);
 
-		Context* co = new Context();
+		std::shared_ptr<Context> co = std::make_shared<Context>();
 		co->subtrees = lt->subtrees;
 		assert(tm->type == &CONTEXT_OPEN);
 		int tree_index = 0;
-		for(Tree* t : lt->subtrees){
+		for(std::shared_ptr<Tree> t : lt->subtrees){
 			if((t->toListOfTrees())){
 				ret = _matches(tm, t);
 				if(ret.result) {
 					assert(ret.captures[tm->matching_group].trees.size()==1);
-					Context* co_inner = (ret.captures[tm->matching_group].trees[0])->toContext();
+					std::shared_ptr<Context> co_inner = (ret.captures[tm->matching_group].trees[0])->toContext();
 					assert(co_inner);
 					co->subtrees[tree_index] = co_inner;
 					ret.captures[tm->matching_group] = {{co}};
@@ -297,7 +300,6 @@ match_results _matches(Matcher* m, Tree* t){
 			}
 			tree_index++;
 		}
-		delete co;
 		return {false, {}};
 	} else if(em){
 		// its not meaningful to match an empty string to a non-empty anything
@@ -310,7 +312,7 @@ match_results _matches(Matcher* m, Tree* t){
 }
 }
 
-match_results matches(Matcher* m, Tree* t){
+match_results matches(std::shared_ptr<Matcher> m, std::shared_ptr<Tree> t){
 	matches_nfa_depth = 0;
 	return _matches(m, t);
 }

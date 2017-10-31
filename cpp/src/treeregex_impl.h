@@ -6,6 +6,7 @@
 #include <cassert>
 #include <ostream>
 #include <bitset>
+#include <memory>
 
 #include "constants.h"
 
@@ -19,16 +20,15 @@ struct TreeMatcher;
 struct MatcherOperator;
 struct CharacterSetMatcher;
 
-struct Matcher {
+struct Matcher : std::enable_shared_from_this<Matcher>{
 	int matching_group;
 	Matcher():matching_group(0){}
 	virtual void print(std::ostream&) = 0;
-	virtual ~Matcher(){}
-	virtual StringMatcher* toStringMatcher(){ return nullptr; }
-	virtual EpsilonMatcher* toEpsilonMatcher(){ return nullptr; }
-	virtual TreeMatcher* toTreeMatcher(){ return nullptr; }
-	virtual MatcherOperator* toMatcherOperator(){ return nullptr; }
-	virtual CharacterSetMatcher* toCharacterSetMatcher(){ return nullptr; }
+	virtual std::shared_ptr<StringMatcher> toStringMatcher(){ return nullptr; }
+	virtual std::shared_ptr<EpsilonMatcher> toEpsilonMatcher(){ return nullptr; }
+	virtual std::shared_ptr<TreeMatcher> toTreeMatcher(){ return nullptr; }
+	virtual std::shared_ptr<MatcherOperator> toMatcherOperator(){ return nullptr; }
+	virtual std::shared_ptr<CharacterSetMatcher> toCharacterSetMatcher(){ return nullptr; }
 };
 
 struct StringMatcher : public Matcher {
@@ -42,7 +42,7 @@ struct StringMatcher : public Matcher {
 	virtual void print(std::ostream& out){
 		out << escape(regex);
 	}
-	virtual StringMatcher* toStringMatcher(){ return this; }
+	virtual std::shared_ptr<StringMatcher> toStringMatcher(){ return std::static_pointer_cast<StringMatcher>(shared_from_this()); }
 };
 
 struct CharacterSetMatcher : public Matcher {
@@ -57,34 +57,23 @@ struct CharacterSetMatcher : public Matcher {
 		}
 		out << "]";
 	}
-	virtual CharacterSetMatcher* toCharacterSetMatcher(){ return this; }
+	virtual std::shared_ptr<CharacterSetMatcher> toCharacterSetMatcher(){ return std::static_pointer_cast<CharacterSetMatcher>(shared_from_this()); }
 };
 
 struct EpsilonMatcher : public Matcher {
-	EpsilonMatcher(){}
-
-	static void* operator new(std::size_t sz){
-		static void* saved = nullptr;
-		if(!saved){
-			saved = ::operator new(sz);
-		}
-		return saved;
-	}
-
-	//TODO: is this actually being called on a Matcher* pointer?
-	static void operator delete(void* ptr){
-	}
+	static std::shared_ptr<EpsilonMatcher> get(){ static std::shared_ptr<EpsilonMatcher> e = std::make_shared<EpsilonMatcher>(); return e; }
 
 	virtual void print(std::ostream& out){
 		out << "<epsilon>";
 	}
-	virtual EpsilonMatcher* toEpsilonMatcher(){ return this; }
+	virtual std::shared_ptr<EpsilonMatcher> toEpsilonMatcher(){ return std::static_pointer_cast<EpsilonMatcher>(shared_from_this()); }
 };
+
 
 struct TreeMatcher :public Matcher {
 	const std::string* type;
-	Matcher* body;
-	TreeMatcher(const std::string* t, Matcher* sub=nullptr): type(t), body(sub){}
+	std::shared_ptr<Matcher> body;
+	TreeMatcher(const std::string* t, std::shared_ptr<Matcher> sub=nullptr): type(t), body(sub){}
 
 	virtual void print(std::ostream& out){
 		if(type == &SUBTREE){
@@ -99,16 +88,15 @@ struct TreeMatcher :public Matcher {
 			out << CONTEXT_CLOSE;
 		}
 	}
-	~TreeMatcher(){ delete body; }
-	virtual TreeMatcher* toTreeMatcher(){ return this; }
+	virtual std::shared_ptr<TreeMatcher> toTreeMatcher(){ return std::static_pointer_cast<TreeMatcher>(shared_from_this()); }
 };
 
 // supports star, union, concatenation
 struct MatcherOperator : public Matcher {
-	Matcher* before_or_left;
-	Matcher* after_or_right;
+	std::shared_ptr<Matcher> before_or_left;
+	std::shared_ptr<Matcher> after_or_right;
 	const std::string* type;
-	MatcherOperator(const std::string* t, Matcher* l, Matcher* r = nullptr):type(t), before_or_left(l), after_or_right(r){}
+	MatcherOperator(const std::string* t, std::shared_ptr<Matcher> l, std::shared_ptr<Matcher> r = nullptr):type(t), before_or_left(l), after_or_right(r){}
 
 	virtual void print(std::ostream& out){
 		if(type == &CONCATENATION){
@@ -129,8 +117,7 @@ struct MatcherOperator : public Matcher {
 			out << ')';
 		}
 	}
-	~MatcherOperator(){ delete before_or_left; delete after_or_right; }
-	virtual MatcherOperator* toMatcherOperator(){ return this; }
+	virtual std::shared_ptr<MatcherOperator> toMatcherOperator(){ return std::static_pointer_cast<MatcherOperator>(shared_from_this()); }
 };
 
 namespace  {
@@ -158,10 +145,10 @@ std::string nextToken(const std::string& ret, int index){
 	return {ret[index]};
 }
 
-Matcher* joinMatcher(Matcher* a, Matcher* b){
+std::shared_ptr<Matcher> joinMatcher(std::shared_ptr<Matcher> a, std::shared_ptr<Matcher> b){
 	if(!a){ return b;}
 	if(!b) { return a;}
-	return new MatcherOperator(&CONCATENATION, a, b);
+	return std::make_shared<MatcherOperator>(&CONCATENATION, a, b);
 }
 
 int assertAndEatNextToken(const std::string& str, int i, const std::string& v){
@@ -169,9 +156,9 @@ int assertAndEatNextToken(const std::string& str, int i, const std::string& v){
 	return i+v.length();
 }
 
-std::pair<CharacterSetMatcher*, int> parse_char_set(const std::string& str, int i=0){
+std::pair<std::shared_ptr<CharacterSetMatcher>, int> parse_char_set(const std::string& str, int i=0){
 	bool is_first_token = true;
-	auto* out = new CharacterSetMatcher();
+	auto out = std::make_shared<CharacterSetMatcher>();
 	char last_added;
 	while (i < str.length()) {
 		if(is_first_token && nextToken(str, i) == CHAR_CLASS_NEG){
@@ -202,16 +189,16 @@ std::pair<CharacterSetMatcher*, int> parse_char_set(const std::string& str, int 
 	return {out, i};
 }
 
-std::pair<Matcher*,int> __parse(const std::string& str, int i = 0);
-std::pair<Matcher*,int> _parse(const std::string& str, int i = 0){
+std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i = 0);
+std::pair<std::shared_ptr<Matcher>,int> _parse(const std::string& str, int i = 0){
 	auto ret = __parse(str, i);
 	//ret.first->print(std::cout); std::cout << '\n';
 	return ret;
 }
 
-std::pair<Matcher*,int> __parse(const std::string& str, int i ){
-	Matcher* out = nullptr;
-	Matcher* last_out = nullptr;
+std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i ){
+	std::shared_ptr<Matcher> out = nullptr;
+	std::shared_ptr<Matcher> last_out = nullptr;
 	while (i < str.length()) {
 		if(nextToken(str, i) == CONTEXT_OPEN){
 			int tmp_matcher = matcher_group++;
@@ -219,7 +206,7 @@ std::pair<Matcher*,int> __parse(const std::string& str, int i ){
 			i = p.second;
 			i = assertAndEatNextToken(str, i, CONTEXT_CLOSE);
 			last_out = out;
-			auto* tm = new TreeMatcher(&CONTEXT_OPEN, p.first);
+			auto tm = std::make_shared<TreeMatcher>(&CONTEXT_OPEN, p.first);
 			tm->matching_group = tmp_matcher;
 			out = joinMatcher(out, tm);
 		} else if (nextToken(str, i) == EXACT_OPEN){
@@ -227,32 +214,32 @@ std::pair<Matcher*,int> __parse(const std::string& str, int i ){
 			i = p.second;
 			i= assertAndEatNextToken(str, i, EXACT_CLOSE);
 			last_out = out;
-			out = joinMatcher(out, new TreeMatcher(&EXACT_OPEN, p.first));
+			out = joinMatcher(out, std::make_shared<TreeMatcher>(&EXACT_OPEN, p.first));
 		} else if (nextToken(str, i) == KLEENE_STAR){
 			i++;
 			assert(out);
 			if(last_out == nullptr){
 				last_out = out;
-				out = new MatcherOperator(&KLEENE_STAR, out);
+				out = std::make_shared<MatcherOperator>(&KLEENE_STAR, out);
 			} else {
-				MatcherOperator* mo = (out)->toMatcherOperator();
+				std::shared_ptr<MatcherOperator> mo = (out)->toMatcherOperator();
 				assert(mo);
 				if(mo->type == &KLEENE_STAR){
 					last_out = out;
-					out = new MatcherOperator(&KLEENE_STAR, out);
+					out = std::make_shared<MatcherOperator>(&KLEENE_STAR, out);
 				} else {
-					mo->after_or_right = new MatcherOperator(&KLEENE_STAR, mo->after_or_right);
+					mo->after_or_right = std::make_shared<MatcherOperator>(&KLEENE_STAR, mo->after_or_right);
 				}
 			}
 		} else if (nextToken(str, i) == UNION){
 			auto p = _parse(str, i+UNION.length());
 			i = p.second;
 			last_out = out;
-			out = new MatcherOperator(&UNION, out, p.first);
+			out = std::make_shared<MatcherOperator>(&UNION, out, p.first);
 		} else if(nextToken(str, i) == SUBTREE){
 			i++;
 			last_out = out;
-			auto* tmp = new TreeMatcher(&SUBTREE);
+			auto tmp = std::make_shared<TreeMatcher>(&SUBTREE);
 			tmp->matching_group = matcher_group++;
 			//std::cout << "SUBTREE CREATE: " << tmp->matching_group << '\n';
 			out = joinMatcher(out, tmp);
@@ -276,34 +263,34 @@ std::pair<Matcher*,int> __parse(const std::string& str, int i ){
 			out = joinMatcher(out, p.first);
 		} else if(nextToken(str, i) == ALL_CHARS){
 				last_out = out;
-				auto* tmp = new CharacterSetMatcher();
+				auto tmp = std::make_shared<CharacterSetMatcher>();
 				tmp->negation = true;
 				out = joinMatcher(out, tmp);
 				i+=ALL_CHARS.length();
 		} else {
 			// semi-hack to save on space
-			/*if(StringMatcher* out_str = (out)->toStringMatcher()){
+			/*if(std::shared_ptr<StringMatcher> out_str = (out)->toStringMatcher()){
 				std::string tok = nextToken(str, i);
 				out_str->addToken(tok);
 				i+=tok.length();
 			} else*/ {
 				std::string tok = nextToken(str, i);
 				last_out = out;
-				out = joinMatcher(out, new StringMatcher(tok));
+				out = joinMatcher(out, std::make_shared<StringMatcher>(tok));
 				i+=tok.length();
 			}
 		}
 	}
 	if(!out){
 		last_out = out;
-		out = new EpsilonMatcher();
+		out = EpsilonMatcher::get();
 	}
 	return {out,i};
 }
 }
 
 namespace treeregex {
-Matcher* parse(const std::string& str){
+std::shared_ptr<Matcher> parse(const std::string& str){
 	matcher_group = 1;
 	auto p = _parse(str);
 	assert(p.second == str.length() && "Parsing finished, but characters remained!");

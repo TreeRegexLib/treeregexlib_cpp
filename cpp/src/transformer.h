@@ -1,20 +1,24 @@
+#ifndef TRANSFORMER_H
+#define TRANSFORMER_H
+
+
 #include <utility>
 #include <functional>
 #include "tree.h"
 #include "treeregex_impl.h"
 #include "treeregex_matching.h"
 
-std::function<bool(Tree*)> default_pred = [](Tree*){return true;};
+std::function<bool(std::shared_ptr<Tree>)> default_pred = [](std::shared_ptr<Tree>){return true;};
 std::function<void(std::map<int, TreeSequence>&)> default_mod = [](std::map<int, TreeSequence>&){};
 
 class Transformer {
 public:
-	std::vector<std::function<Tree*(Tree*)>> pre;
-	std::vector<std::function<Tree*(Tree*)>> post;
+	std::vector<std::function<std::shared_ptr<Tree>(std::shared_ptr<Tree>)>> pre;
+	std::vector<std::function<std::shared_ptr<Tree>(std::shared_ptr<Tree>)>> post;
 
-	void add(std::function<bool(Tree*)> pred, Matcher* m, std::function<void(std::map<int, TreeSequence>&)> mod, Tree* r, bool is_pre){
+	void add(std::function<bool(std::shared_ptr<Tree>)> pred, std::shared_ptr<Matcher> m, std::function<void(std::map<int, TreeSequence>&)> mod, std::shared_ptr<Tree> r, bool is_pre){
 		auto& to_do = (is_pre)? pre: post;
-		to_do.push_back([=](Tree* t){
+		to_do.push_back([=](std::shared_ptr<Tree> t){
 				if(pred(t)){
 					auto ret = matches(m, t);
 					//m->print(std::cout); std::cout << " with "; t->print(std::cout); std::cout << '\n';
@@ -23,7 +27,7 @@ public:
 					mod(ret.captures);
 					//std::cout << "Captures:\n";
 					//for(auto& p : ret.captures){ std::cout << p .first ; p.second.print(std::cout); std::cout << '\n';}
-					Tree* out = tree::perform_replacement(r, ret.captures);
+					std::shared_ptr<Tree> out = tree::perform_replacement(r, ret.captures);
 					//std::cout << "AFTER: " ; out->print(std::cout) ; std::cout <<'\n';
 					//exit(1);
 					return out;
@@ -32,11 +36,16 @@ public:
 			});
 	}
 
-	void add(std::function<bool(Tree*)> pred, const std::string m, std::function<void(std::map<int, TreeSequence>&)> mod, const std::string r, bool is_pre){
+	void add(std::function<std::shared_ptr<Tree>(std::shared_ptr<Tree>)> to_change, bool is_pre){
+		auto& to_do = (is_pre)? pre: post;
+		to_do.push_back(to_change);
+	}
+
+	void add(std::function<bool(std::shared_ptr<Tree>)> pred, const std::string m, std::function<void(std::map<int, TreeSequence>&)> mod, const std::string r, bool is_pre){
 		add(pred, treeregex::parse(m), mod, tree::parse_replacement(r), is_pre);
 	}
 
-	void add(Matcher* m, std::function<void(std::map<int, TreeSequence>&)> mod, Tree* r, bool is_pre){
+	void add(std::shared_ptr<Matcher> m, std::function<void(std::map<int, TreeSequence>&)> mod, std::shared_ptr<Tree> r, bool is_pre){
 		add(default_pred, m, mod, r, is_pre);
 	}
 
@@ -44,7 +53,7 @@ public:
 		return add(treeregex::parse(m), mod, tree::parse_replacement(r), is_pre);
 	}
 
-	void add(Matcher* m, Tree* r, bool is_pre){
+	void add(std::shared_ptr<Matcher> m, std::shared_ptr<Tree> r, bool is_pre){
 		add(default_pred, m, default_mod, r, is_pre);
 	}
 
@@ -52,7 +61,7 @@ public:
 		add(default_pred, treeregex::parse(m), default_mod, tree::parse_replacement(r), is_pre);
 	}
 
-	void add(Matcher* m, std::function<void(std::map<int, TreeSequence>&)> mod, Tree* r){
+	void add(std::shared_ptr<Matcher> m, std::function<void(std::map<int, TreeSequence>&)> mod, std::shared_ptr<Tree> r){
 		add(default_pred, m, mod, r, false);
 		add(default_pred, m, mod, r, true);
 	}
@@ -61,7 +70,7 @@ public:
 		add(treeregex::parse(m), mod, tree::parse_replacement(r));
 	}
 
-	void add(Matcher* p, Tree* r){
+	void add(std::shared_ptr<Matcher> p, std::shared_ptr<Tree> r){
 		add(p, r, false);
 		add(p, r, true);
 	}
@@ -70,9 +79,9 @@ public:
 		add(treeregex::parse(p), tree::parse_replacement(r));
 	}
 
-	void add(Matcher* m, std::function<Tree*(std::map<int, TreeSequence>&)> mod, bool is_pre){
+	void add(std::shared_ptr<Matcher> m, std::function<std::shared_ptr<Tree>(std::map<int, TreeSequence>&)> mod, bool is_pre){
 		auto& to_do = (is_pre)? pre: post;
-		to_do.push_back([=](Tree* t){
+		to_do.push_back([=](std::shared_ptr<Tree> t){
 				auto ret = matches(m, t);
 				if(ret.result){
 					t = mod(ret.captures);
@@ -81,13 +90,13 @@ public:
 			});
 	}
 
-	void add(const std::string m , std::function<Tree*(std::map<int, TreeSequence>&)> mod, bool is_pre){
+	void add(const std::string m , std::function<std::shared_ptr<Tree>(std::map<int, TreeSequence>&)> mod, bool is_pre){
 		add(treeregex::parse(m), mod, is_pre);
 	}
 
-	void add(Matcher* m, std::function<void(std::map<int, TreeSequence>&, bool)> mod, bool is_pre){
+	void add(std::shared_ptr<Matcher> m, std::function<void(std::map<int, TreeSequence>&, bool)> mod, bool is_pre){
 		auto& to_do = (is_pre)? pre: post;
-		to_do.push_back([=](Tree* t){
+		to_do.push_back([=](std::shared_ptr<Tree> t){
 				auto ret = matches(m, t);
 				if(ret.result){
 					mod(ret.captures, true);
@@ -100,12 +109,12 @@ public:
 		add(treeregex::parse(m), mod, is_pre);
 	}
 
-	void add(Matcher* m, std::function<Tree*(std::map<int, TreeSequence>&)> mod){
+	void add(std::shared_ptr<Matcher> m, std::function<std::shared_ptr<Tree>(std::map<int, TreeSequence>&)> mod){
 		add(m, mod, false);
 		add(m, mod, true);
 	}
 
-	void add(const std::string m_, std::function<Tree*(std::map<int, TreeSequence>&)> mod){
+	void add(const std::string m_, std::function<std::shared_ptr<Tree>(std::map<int, TreeSequence>&)> mod){
 		add(treeregex::parse(m_), mod);
 	}
 
@@ -142,8 +151,8 @@ public:
 		add(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::get<3>(t));
 	}
 private:
-	Tree* recurse(Tree* val){
-		ListOfTrees* lt = val->toListOfTrees();
+	std::shared_ptr<Tree> recurse(std::shared_ptr<Tree> val){
+		std::shared_ptr<ListOfTrees> lt = val->toListOfTrees();
 		if(!lt){
 			assert(val->toStringLeaf());
 			return val;
@@ -155,7 +164,7 @@ private:
 	}
 
 public:
-	Tree* operator()(Tree* val){
+	std::shared_ptr<Tree> operator()(std::shared_ptr<Tree> val){
 		for(auto& f : pre){
 			val = f(val);
 		}
@@ -167,3 +176,4 @@ public:
 	}
 };
 
+#endif /*TRANSFORMER_H*/

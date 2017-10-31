@@ -7,6 +7,7 @@
 #include <ostream>
 #include <sstream>
 #include <map>
+#include <memory>
 
 #include "constants.h"
 
@@ -16,24 +17,24 @@ struct Hole;
 struct Context;
 struct ContextHole;
 struct StringLeaf;
-struct Tree {
+struct Tree : std::enable_shared_from_this<Tree> {
 	virtual void print(std::ostream& out, int tabs=0) = 0;
 	virtual std::string str(){
 		std::ostringstream ost;
 		this->print(ost);
 		return ost.str();
 	}
-	virtual ListOfTrees* toListOfTrees(){ return nullptr; }
-	virtual Hole* toHole(){ return nullptr; }
-	virtual Context* toContext(){ return nullptr; }
-	virtual StringLeaf* toStringLeaf(){ return nullptr; }
-	virtual ContextHole* toContextHole(){ return nullptr; }
+	virtual std::shared_ptr<ListOfTrees> toListOfTrees(){ return nullptr; }
+	virtual std::shared_ptr<Hole> toHole(){ return nullptr; }
+	virtual std::shared_ptr<Context> toContext(){ return nullptr; }
+	virtual std::shared_ptr<StringLeaf> toStringLeaf(){ return nullptr; }
+	virtual std::shared_ptr<ContextHole> toContextHole(){ return nullptr; }
 };
 
 struct TreeSequence {
-	std::vector<Tree*> trees;
+	std::vector<std::shared_ptr<Tree>> trees;
 	void print(std::ostream& out, int tabs=0){
-		for(Tree* t : trees){
+		for(std::shared_ptr<Tree> t : trees){
 			t->print(out, tabs);
 		}
 	}
@@ -45,19 +46,19 @@ struct TreeSequence {
 };
 
 struct ListOfTrees : public Tree {
-	std::vector<Tree*> subtrees;
+	std::vector<std::shared_ptr<Tree>> subtrees;
 	virtual void print(std::ostream& out, int tabs=0){
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
 		out << TREE_OPEN;
 		//out << '\n';
-		for(Tree* t : subtrees){
+		for(std::shared_ptr<Tree> t : subtrees){
 			t->print(out, tabs+1);
 		}
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
 		out << TREE_CLOSE;
 		//out << '\n';
 	}
-	virtual ListOfTrees* toListOfTrees(){ return this; }
+	virtual std::shared_ptr<ListOfTrees> toListOfTrees(){ return std::static_pointer_cast<ListOfTrees>(shared_from_this()); }
 };
 
 struct Hole : public Tree {
@@ -68,16 +69,16 @@ struct Hole : public Tree {
 		out << '$' << hole_id;
 		//out << '\n';
 	}
-	virtual Hole* toHole(){ return this; }
+	virtual std::shared_ptr<Hole> toHole(){ return std::static_pointer_cast<Hole>(shared_from_this()); }
 };
 
 struct Context : public Tree {
-	std::vector<Tree*> subtrees;
+	std::vector<std::shared_ptr<Tree>> subtrees;
 	virtual void print(std::ostream& out, int tabs=0){
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
 		out << TREE_OPEN;
 		//out << '\n';
-		for(Tree* t : subtrees){
+		for(std::shared_ptr<Tree> t : subtrees){
 			t->print(out, tabs+1);
 		}
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
@@ -85,11 +86,11 @@ struct Context : public Tree {
 		//out << '\n';
 	}
 
-	virtual Tree* replace(Tree* v){
-		ListOfTrees* out = new ListOfTrees();
+	virtual std::shared_ptr<Tree> replace(std::shared_ptr<Tree> v){
+		std::shared_ptr<ListOfTrees> out = std::make_shared<ListOfTrees>();
 		int context_count = 0;
-		for(Tree* t : subtrees){
-			Context* ct = t->toContext();
+		for(std::shared_ptr<Tree> t : subtrees){
+			std::shared_ptr<Context> ct = t->toContext();
 			if(ct){
 				context_count++;
 				out->subtrees.push_back(ct->replace(v));
@@ -100,7 +101,7 @@ struct Context : public Tree {
 		assert(context_count==1);
 		return out;
 	}
-	virtual Context* toContext(){ return this; }
+	virtual std::shared_ptr<Context> toContext(){ return std::static_pointer_cast<Context>(shared_from_this()); }
 };
 
 struct ContextHole : public Context {
@@ -110,8 +111,8 @@ struct ContextHole : public Context {
 		//out << '\n';
 	}
 
-	virtual Tree* replace(Tree* v){ return v;}
-	virtual ContextHole* toContextHole(){ return this; }
+	virtual std::shared_ptr<Tree> replace(std::shared_ptr<Tree> v){ return v;}
+	virtual std::shared_ptr<ContextHole> toContextHole(){ return std::static_pointer_cast<ContextHole>(shared_from_this()); }
 };
 
 struct StringLeaf : public Tree {
@@ -124,7 +125,7 @@ struct StringLeaf : public Tree {
 		out << escape(text);
 		//out << '\n';
 	}
-	virtual StringLeaf* toStringLeaf(){ return this; }
+	virtual std::shared_ptr<StringLeaf> toStringLeaf(){ return std::static_pointer_cast<StringLeaf>(std::static_pointer_cast<StringLeaf>(shared_from_this())); }
 };
 
 
@@ -170,11 +171,11 @@ bool isAlpha(const std::string& s){
 		});
 }
 
-std::pair<Tree*,int> _parse(const std::string& str, int i = 0, bool has_holes = false){
+std::pair<std::shared_ptr<Tree>,int> _parse(const std::string& str, int i = 0, bool has_holes = false){
 	//std::cout << "Working on: " << str.substr(i) << '\n';
 	//std::cout << "Working on: " << i << ' ' << str.substr(i, std::min(10, int(str.length())-i-1)) << '\n';
 	i = assertAndEatNextToken(str, i, TREE_OPEN);
-	ListOfTrees* out = new ListOfTrees();
+	std::shared_ptr<ListOfTrees> out = std::make_shared<ListOfTrees>();
 
 	while (i < str.length() && nextToken(str,i) != TREE_CLOSE) {
 		if(nextToken(str,i) == TREE_OPEN){
@@ -191,10 +192,10 @@ std::pair<Tree*,int> _parse(const std::string& str, int i = 0, bool has_holes = 
 				num+= tok;
 			}
 			//std::cout << "NUM: " << num << ' ' << temp << ' ' << str.substr(temp, 10) << std::endl;
-			out->subtrees.push_back(new Hole(stoi(num)));
+			out->subtrees.push_back(std::make_shared<Hole>(stoi(num)));
 		} else {
 			std::string tok = nextToken(str, i);
-			out->subtrees.push_back(new StringLeaf(tok));
+			out->subtrees.push_back(std::make_shared<StringLeaf>(tok));
 			i += tok.length();
 		}
 	}
@@ -203,12 +204,12 @@ std::pair<Tree*,int> _parse(const std::string& str, int i = 0, bool has_holes = 
 }
 }
 
-Tree* parse_replacement(const std::string& str){
+std::shared_ptr<Tree> parse_replacement(const std::string& str){
 	auto p = _parse(str, 0, true);
 	assert(p.second == str.length() && "Parsing finished, but characters remained!");
 	return p.first;
 }
-Tree* parse(const std::string& str){
+std::shared_ptr<Tree> parse(const std::string& str){
 	auto p = _parse(str);
 	//std::cout << str.substr(p.second) << '\n';
 	//std::cout << (p.second == str.length()) << ' ' << p.second << ' '<< str.length() << std::endl;
@@ -216,34 +217,38 @@ Tree* parse(const std::string& str){
 	return p.first;
 }
 
-Tree* perform_replacement(Tree* in, std::map<int, TreeSequence>& captures){
-	Hole* ho = in->toHole();
+std::shared_ptr<Tree> perform_replacement(std::shared_ptr<Tree> in, std::map<int, TreeSequence>& captures){
+	std::shared_ptr<Hole> ho = in->toHole();
 	if(ho){
-		assert(captures[ho->hole_id].trees.size()==1);
-		assert(!(captures[ho->hole_id].trees[0]->toContext()));
-		return captures[ho->hole_id].trees[0];
+		auto it = captures.find(ho->hole_id);
+		assert(it != captures.end());
+		assert(it->second.trees.size()==1);
+		assert(!(it->second.trees[0]->toContext()));
+		return it->second.trees[0];
 	}
 
-	ListOfTrees* lt = in->toListOfTrees();
+	std::shared_ptr<ListOfTrees> lt = in->toListOfTrees();
 	if(!lt){
 		assert(in->toStringLeaf());
 		return in;
 	}
 
-	ListOfTrees* out = new ListOfTrees();
+	std::shared_ptr<ListOfTrees> out = std::make_shared<ListOfTrees>();
 	std::vector<int> positions;
-	for(Tree* t : lt->subtrees){
-		Hole* ht = t->toHole();
-		ListOfTrees* ltt = t->toListOfTrees();
+	for(std::shared_ptr<Tree> t : lt->subtrees){
+		std::shared_ptr<Hole> ht = t->toHole();
+		std::shared_ptr<ListOfTrees> ltt = t->toListOfTrees();
 		if(ht){
-			for(Tree* t2 : captures[ht->hole_id].trees){
+			auto it = captures.find(ht->hole_id);
+			assert(it != captures.end());
+			for(std::shared_ptr<Tree> t2 : it->second.trees){
 				out->subtrees.push_back(t2);
-				Context* co = nullptr;
+				std::shared_ptr<Context> co = nullptr;
 				while(out->subtrees.size()>1 &&
 						(co = (*(out->subtrees.end()-2))->toContext()) &&
 						!((out->subtrees.back()->toContext()))
 						){
-					Tree* t = out->subtrees.back();
+					std::shared_ptr<Tree> t = out->subtrees.back();
 					out->subtrees.pop_back();
 					out->subtrees.back() = co->replace(t);
 				}
@@ -255,12 +260,12 @@ Tree* perform_replacement(Tree* in, std::map<int, TreeSequence>& captures){
 			out->subtrees.push_back(t);
 		}
 
-		Context* co = nullptr;
+		std::shared_ptr<Context> co = nullptr;
 		while(out->subtrees.size()>1 &&
 				(co = (*(out->subtrees.end()-2))->toContext()) &&
 				!((out->subtrees.back())->toContext())
 			){
-			Tree* t = out->subtrees.back();
+			std::shared_ptr<Tree> t = out->subtrees.back();
 			out->subtrees.pop_back();
 			out->subtrees.back() = co->replace(t);
 		}

@@ -19,11 +19,11 @@ struct Node_data {
 	}
 };
 
-typedef Graph<Node_data, Matcher*> NFA_Graph;
-typedef Node<Node_data, Matcher*> NFA_Node;
-typedef Edge<Node_data, Matcher*> NFA_Edge;
+typedef Graph<Node_data, std::shared_ptr<Matcher>> NFA_Graph;
+typedef Node<Node_data, std::shared_ptr<Matcher>> NFA_Node;
+typedef Edge<Node_data, std::shared_ptr<Matcher>> NFA_Edge;
 struct NFA {
-	NFA_Graph* g;
+	std::shared_ptr<NFA_Graph> g;
 	NFA_Node* start;
 	NFA_Node* end;
 	int captures;
@@ -38,8 +38,8 @@ NFA_Node& addNodeWrap(NFA_Graph& g){
 }
 
 int max_matching_group = 0;
-NFA_Node& _to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts);
-NFA_Node& to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
+NFA_Node& _to_nfa(std::shared_ptr<Matcher> m, NFA_Graph& g, NFA_Node& starts);
+NFA_Node& to_nfa(std::shared_ptr<Matcher> m, NFA_Graph& g, NFA_Node& starts){
 	auto& ret =  _to_nfa(m, g, starts);
 	assert(starts.val.matching_group == 0 || m->matching_group == 0);
 	if(m->matching_group){
@@ -59,12 +59,12 @@ NFA_Node& to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
 	return ret;
 }
 
-NFA_Node& _to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
-	CharacterSetMatcher* cm = nullptr;
-	StringMatcher* sm = nullptr;
-	TreeMatcher* tm = nullptr;
-	EpsilonMatcher* em = nullptr;
-	MatcherOperator* mo = nullptr;
+NFA_Node& _to_nfa(std::shared_ptr<Matcher> m, NFA_Graph& g, NFA_Node& starts){
+	std::shared_ptr<CharacterSetMatcher> cm = nullptr;
+	std::shared_ptr<StringMatcher> sm = nullptr;
+	std::shared_ptr<TreeMatcher> tm = nullptr;
+	std::shared_ptr<EpsilonMatcher> em = nullptr;
+	std::shared_ptr<MatcherOperator> mo = nullptr;
 
 	sm = (m)->toStringMatcher();
 	if(!sm){
@@ -91,19 +91,19 @@ NFA_Node& _to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
 
 			auto& end = addNodeWrap(g);
 			auto& end_tmp = to_nfa(mo->after_or_right, g, to_nfa(mo->before_or_left, g, starts));
-			g.addEdge(end_tmp, end, new EpsilonMatcher());
+			g.addEdge(end_tmp, end, EpsilonMatcher::get());
 			return end;
 		} else if(mo->type == &UNION){
 			//std::cout << "UNION\n";
 			auto& start1 = addNodeWrap(g);
 			auto& start2 = addNodeWrap(g);
-			g.addEdge(starts, start1, new EpsilonMatcher());
-			g.addEdge(starts, start2, new EpsilonMatcher());
+			g.addEdge(starts, start1, EpsilonMatcher::get());
+			g.addEdge(starts, start2, EpsilonMatcher::get());
 			auto& end1 = to_nfa(mo->before_or_left, g, start1);
 			auto& end2  = to_nfa(mo->after_or_right, g, start2);
 			auto& end = addNodeWrap(g);
-			g.addEdge(end1, end, new EpsilonMatcher());
-			g.addEdge(end2, end,  new EpsilonMatcher());
+			g.addEdge(end1, end, EpsilonMatcher::get());
+			g.addEdge(end2, end,  EpsilonMatcher::get());
 			return end;
 		} else if(mo->type == &KLEENE_STAR){
 			//std::cout << "KLEENE\n";
@@ -113,10 +113,10 @@ NFA_Node& _to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
 
 			auto& end = addNodeWrap(g);
 
-			g.addEdge(starts, end, new EpsilonMatcher());
-			g.addEdge(starts, start_tmp, new EpsilonMatcher());
-			g.addEdge(end_tmp, end, new EpsilonMatcher());
-			g.addEdge(end_tmp, start_tmp, new EpsilonMatcher());
+			g.addEdge(starts, end, EpsilonMatcher::get());
+			g.addEdge(starts, start_tmp, EpsilonMatcher::get());
+			g.addEdge(end_tmp, end, EpsilonMatcher::get());
+			g.addEdge(end_tmp, start_tmp, EpsilonMatcher::get());
 
 			return end;
 		} else {
@@ -126,10 +126,10 @@ NFA_Node& _to_nfa(Matcher *m, NFA_Graph& g, NFA_Node& starts){
 }
 }
 
-NFA matcher_to_nfa(Matcher* m){
+NFA matcher_to_nfa(std::shared_ptr<Matcher> m){
 	Node_id_count = 0;
 	max_matching_group = 0;
-	NFA_Graph* g= new NFA_Graph();
+	std::shared_ptr<NFA_Graph> g= std::make_shared<NFA_Graph>();
 	auto& start = addNodeWrap(*g);
 	auto& end = to_nfa(m, *g, start);
 
