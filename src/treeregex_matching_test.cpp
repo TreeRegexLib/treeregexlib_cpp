@@ -17,19 +17,29 @@ void print_perform_matches(match_results&& mr, std::shared_ptr<Tree> replacement
 }
 
 int main(){
-	std::cout << "TEST: " << matches(treeregex::parse("(%aaaa%)"), tree::parse("(%aaaa%)")) << '\n';
-	std::cout << "TEST: " << matches(treeregex::parse("(%(a(a)a)*|aaaa%)"), tree::parse("(%aaaa%)")) << '\n';
-	std::cout << "TEST: " << matches(treeregex::parse("(@|.)*"), tree::parse("(%abc%)")) << '\n';
-	std::cout << "TEST: " << matches(treeregex::parse("((%abc%)|.)*"), tree::parse("(%abc%)")) << '\n';
-	std::cout << "TEST: " << matches(treeregex::parse("((&abc&)|.)*"), tree::parse("(%abc%)")) << '\n';
-	std::cout << "TEST: " << matches(treeregex::parse("(&abc&)"), tree::parse("(%abc%)")) << '\n';
-	std::cout << "TEST: " << matches(treeregex::parse("(&abc&)"), tree::parse("(%(%abc%)%)")) << '\n';
-	std::cout << "TEST: " << matches(treeregex::parse("(&abc&)"), tree::parse("(%abc(%abc%)%)")) << '\n';
+	bool a = false;
+	std::cout << "TEST: " << (a=matches(treeregex::parse("(%aaaa%)"), tree::parse("(%aaaa%)"))) << '\n';
+		assert(a);
+	std::cout << "TEST: " << (a=matches(treeregex::parse("(%(a(a)a)*|aaaa%)"), tree::parse("(%aaaa%)"))) << '\n';
+		assert(a);
+	std::cout << "TEST: " << (a=matches(treeregex::parse("(@|.)*"), tree::parse("(%abc%)"))) << '\n';
+		assert(a);
+	std::cout << "TEST: " << (a=matches(treeregex::parse("((%abc%)|.)*"), tree::parse("(%abc%)"))) << '\n';
+		assert(a);
+	std::cout << "TEST: " << (a=matches(treeregex::parse("((*abc*)|.)*"), tree::parse("(%abc%)"))) << '\n';
+		assert(a);
+	std::cout << "TEST: " << (a=matches(treeregex::parse("(*abc*)"), tree::parse("(%abc%)"))) << '\n';
+		assert(a);
+	std::cout << "TEST: " << (a=matches(treeregex::parse("(*abc*)"), tree::parse("(%(%abc%)%)"))) << '\n';
+		assert(a);
+	std::cout << "TEST: " << (a=matches(treeregex::parse("(*abc*)"), tree::parse("(%abc(%abc%)%)"))) << '\n';
+		assert(a);
 
-	std::cout << "NEG TEST: " << matches(treeregex::parse("(%(aaa)*|(aaaa)*%)"), tree::parse("(%aaaaaaa%)")) << '\n';
+	std::cout << "NEG TEST: " << (a=matches(treeregex::parse("(%(aaa)*|(aaaa)*%)"), tree::parse("(%aaaaaaa%)"))) << '\n';
+		assert(!a);
 
 	std::cout << "CAPTURES TEST:\n";
-	print_matching_results(matches(treeregex::parse("(&(@|a)*&)"), tree::parse("(%(%a(%b%)%)bc%)")));
+	print_matching_results(matches(treeregex::parse("(*(@|a)**)"), tree::parse("(%(%a(%b%)%)bc%)")));
 	print_matching_results(matches(treeregex::parse("(%(@|.)*%)"), tree::parse("(%aaa%)")));
 	print_matching_results(matches(treeregex::parse("(%([a-z]*)%)"), tree::parse("(%bc%)")));
 	print_matching_results(matches(treeregex::parse("(%([a-z]*)%)"), tree::parse("(%abz%)")));
@@ -41,7 +51,7 @@ int main(){
 
 	std::cout << "REPLACING TEST:\n";
 	print_perform_matches(
-			matches(treeregex::parse("(&(@|a)*&)"), tree::parse("(%(%a(%b%)%)bc%)")),
+			matches(treeregex::parse("(*(@|a)**)"), tree::parse("(%(%a(%b%)%)bc%)")),
 			tree::parse_replacement("(%$1$3$2%)")
 			);
 	print_perform_matches(
