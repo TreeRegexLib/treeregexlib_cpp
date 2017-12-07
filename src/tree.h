@@ -18,7 +18,7 @@ struct Context;
 struct ContextHole;
 struct StringLeaf;
 struct Tree : std::enable_shared_from_this<Tree> {
-	virtual void print(std::ostream& out, int tabs=0) = 0;
+	virtual void print(std::ostream& out, bool serialize=false, int tabs=0) = 0;
 	virtual std::string str(){
 		std::ostringstream ost;
 		this->print(ost);
@@ -33,9 +33,9 @@ struct Tree : std::enable_shared_from_this<Tree> {
 
 struct TreeSequence {
 	std::vector<std::shared_ptr<Tree>> trees;
-	void print(std::ostream& out, int tabs=0){
+	void print(std::ostream& out, bool serialize=false, int tabs=0){
 		for(std::shared_ptr<Tree> t : trees){
-			t->print(out, tabs);
+			t->print(out, serialize, tabs);
 		}
 	}
 	std::string str(){
@@ -47,15 +47,15 @@ struct TreeSequence {
 
 struct ListOfTrees : public Tree {
 	std::vector<std::shared_ptr<Tree>> subtrees;
-	virtual void print(std::ostream& out, int tabs=0){
+	virtual void print(std::ostream& out, bool serialize=false, int tabs=0){
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
-		out << TREE_OPEN;
+		if (!serialize){ out << TREE_OPEN;}
 		//out << '\n';
 		for(std::shared_ptr<Tree> t : subtrees){
-			t->print(out, tabs+1);
+			t->print(out, serialize, tabs+1);
 		}
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
-		out << TREE_CLOSE;
+		if(!serialize){out << TREE_CLOSE;}
 		//out << '\n';
 	}
 	virtual std::shared_ptr<ListOfTrees> toListOfTrees(){ return std::static_pointer_cast<ListOfTrees>(shared_from_this()); }
@@ -64,7 +64,7 @@ struct ListOfTrees : public Tree {
 struct Hole : public Tree {
 	int hole_id;
 	Hole(int id):hole_id(id){}
-	virtual void print(std::ostream& out, int tabs=0){
+	virtual void print(std::ostream& out, bool serialize=false, int tabs=0){
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
 		out << '$' << hole_id;
 		//out << '\n';
@@ -74,15 +74,15 @@ struct Hole : public Tree {
 
 struct Context : public Tree {
 	std::vector<std::shared_ptr<Tree>> subtrees;
-	virtual void print(std::ostream& out, int tabs=0){
+	virtual void print(std::ostream& out, bool serialize=false, int tabs=0){
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
-		out << TREE_OPEN;
+		if(!serialize){out << TREE_OPEN;}
 		//out << '\n';
 		for(std::shared_ptr<Tree> t : subtrees){
-			t->print(out, tabs+1);
+			t->print(out, serialize, tabs+1);
 		}
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
-		out << TREE_CLOSE;
+		if(!serialize){out << TREE_CLOSE;}
 		//out << '\n';
 	}
 
@@ -105,7 +105,7 @@ struct Context : public Tree {
 };
 
 struct ContextHole : public Context {
-	virtual void print(std::ostream& out, int tabs=0){
+	virtual void print(std::ostream& out, bool serailize=false, int tabs=0){
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
 		out << "<hole>";
 		//out << '\n';
@@ -120,9 +120,10 @@ struct StringLeaf : public Tree {
 	StringLeaf(const std::string&& s):text(unescape(s)){}
 	StringLeaf(const std::string& s):text(unescape(s)){}
 
-	virtual void print(std::ostream& out, int tabs=0){
+	virtual void print(std::ostream& out, bool serialize=false, int tabs=0){
 		//for(int i = 0; i< tabs; ++i) { out << '\t'; }
-		out << escape(text);
+		if(!serialize){out << escape(text);}
+		else { out << text; }
 		//out << '\n';
 	}
 	virtual std::shared_ptr<StringLeaf> toStringLeaf(){ return std::static_pointer_cast<StringLeaf>(std::static_pointer_cast<StringLeaf>(shared_from_this())); }
@@ -211,9 +212,12 @@ std::shared_ptr<Tree> parse_replacement(const std::string& str){
 }
 std::shared_ptr<Tree> parse(const std::string& str){
 	auto p = _parse(str);
-	//std::cout << str.substr(p.second) << '\n';
-	//std::cout << (p.second == str.length()) << ' ' << p.second << ' '<< str.length() << std::endl;
-	assert(p.second == str.length() && "Parsing finished, but characters remained!");
+	//std::cerr << str.substr(p.second) << '\n';
+	//std::cerr << int(str[p.second]) << '\n';
+	//std::cerr<< (p.second == str.length()) << ' ' << p.second << ' '<< str.length() << std::endl;
+	if (p.second == str.length()-1 && str[p.second] != '\n'){
+		assert(p.second == str.length() && "Parsing finished, but characters remained!");
+	}
 	return p.first;
 }
 

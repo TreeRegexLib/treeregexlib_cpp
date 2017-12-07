@@ -13,6 +13,9 @@ int main(int argc, char** argv){
 	auto treeregex_r = tree::parse_replacement(argv[2]);
 
 	std::string tree_str((std::istreambuf_iterator<char>(std::cin)), std::istreambuf_iterator<char>());
+	if(tree_str[tree_str.length()-1] == '\n'){
+		tree_str.pop_back();
+	}
 	auto tree = tree::parse(tree_str);
 
 	Transformer t;

@@ -12,12 +12,18 @@ int main(int argc, char** argv){
 	auto treeregex = treeregex::parse(argv[1]);
 
 	std::string tree_str((std::istreambuf_iterator<char>(std::cin)), std::istreambuf_iterator<char>());
+	if(tree_str[tree_str.length()-1] == '\n'){
+		tree_str.pop_back();
+	}
 	auto tree = tree::parse(tree_str);
 
 	Transformer t;
 	t.add([&] (std::shared_ptr<Tree> t){
 			auto ret = matches(treeregex, t);
-			if(!ret.result) {return t;}
+			if(!ret.result) {
+			//std::cout << "Match not found: "; t->print(std::cout); std::cout << '\n';
+
+			return t;}
 			std::cout << "Match found: "; t->print(std::cout); std::cout << '\n';
 			return t;
 			}, true);

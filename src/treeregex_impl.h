@@ -129,7 +129,11 @@ bool isPrefix(const std::string& pref, const std::string& ret, int index){
 	return true;
 }
 
-std::string nextToken(const std::string& ret, int index){
+bool isEndToken(const std::string& ret){
+	return ret == SUBREGEX_CLOSE || ret == CONTEXT_CLOSE || ret == EXACT_CLOSE;
+}
+
+std::string nextToken(const std::string& ret, int index, const std::string* end = nullptr){
 	//this is slow...
 	if(isPrefix(ESCAPE_SEQ, ret, index)){
 		int escape_seq_len = ESCAPE_SEQ.length();
@@ -137,7 +141,7 @@ std::string nextToken(const std::string& ret, int index){
 	}
 
 	for(const auto& t : large_tokens){ // tokens must be sorted by size -> longest first
-		if(isPrefix(t, ret, index)){
+		if(isPrefix(t, ret, index) && (end==nullptr || !isEndToken(t) || *end==t)){
 			return t;
 		}
 	}
@@ -151,8 +155,9 @@ std::shared_ptr<Matcher> joinMatcher(std::shared_ptr<Matcher> a, std::shared_ptr
 	return std::make_shared<MatcherOperator>(&CONCATENATION, a, b);
 }
 
-int assertAndEatNextToken(const std::string& str, int i, const std::string& v){
-	assert(nextToken(str, i) == v);
+int assertAndEatNextToken(const std::string& str, int i, const std::string& v, const std::string* end){
+	//std::cerr << "HELLO:" << str.substr(i) << '\t' << nextToken(str, i, end) << "END\n";
+	assert(nextToken(str, i, end) == v);
 	return i+v.length();
 }
 
@@ -189,33 +194,43 @@ std::pair<std::shared_ptr<CharacterSetMatcher>, int> parse_char_set(const std::s
 	return {out, i};
 }
 
-std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i = 0);
-std::pair<std::shared_ptr<Matcher>,int> _parse(const std::string& str, int i = 0){
-	auto ret = __parse(str, i);
+std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i, const std::string* end );
+std::pair<std::shared_ptr<Matcher>,int> _parse(const std::string& str, int i = 0, const std::string* end = nullptr){
+	//std::cerr << "Going deep!\n";
+	auto ret = __parse(str, i, end);
 	//ret.first->print(std::cout); std::cout << '\n';
+	//std::cerr << "Returning!\n";
 	return ret;
 }
 
-std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i ){
+std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i, const std::string* end ){
 	std::shared_ptr<Matcher> out = nullptr;
 	std::shared_ptr<Matcher> last_out = nullptr;
 	while (i < str.length()) {
-		if(nextToken(str, i) == CONTEXT_OPEN){
+		auto nextTok = nextToken(str, i, end);
+		//std::cerr << "Parsing: " << str.substr(i) << '\t' << (end?*end:"nullptr") << '\t' << nextToken(str, i, end) << '\t' << i << '\n';
+		if(nextToken(str, i, end) == SUBREGEX_CLOSE ||
+			nextToken(str, i, end) == CONTEXT_CLOSE ||
+			nextToken(str, i, end) == EXACT_CLOSE){
+			//std::cerr << "End: " << (end?*end:"Nullptr") << '\n';
+			//std::cerr << "Found end!\n";
+			break;
+		} else if(nextTok == CONTEXT_OPEN){
 			int tmp_matcher = matcher_group++;
-			auto p = _parse(str, i+CONTEXT_OPEN.length());
+			auto p = _parse(str, i+CONTEXT_OPEN.length(), &CONTEXT_CLOSE);
 			i = p.second;
-			i = assertAndEatNextToken(str, i, CONTEXT_CLOSE);
+			i = assertAndEatNextToken(str, i, CONTEXT_CLOSE, &CONTEXT_CLOSE);
 			last_out = out;
 			auto tm = std::make_shared<TreeMatcher>(&CONTEXT_OPEN, p.first);
 			tm->matching_group = tmp_matcher;
 			out = joinMatcher(out, tm);
-		} else if (nextToken(str, i) == EXACT_OPEN){
-			auto p = _parse(str, i+EXACT_OPEN.length());
+		} else if (nextTok == EXACT_OPEN){
+			auto p = _parse(str, i+EXACT_OPEN.length(), &EXACT_CLOSE);
 			i = p.second;
-			i= assertAndEatNextToken(str, i, EXACT_CLOSE);
+			i = assertAndEatNextToken(str, i, EXACT_CLOSE, &EXACT_CLOSE);
 			last_out = out;
 			out = joinMatcher(out, std::make_shared<TreeMatcher>(&EXACT_OPEN, p.first));
-		} else if (nextToken(str, i) == KLEENE_STAR){
+		} else if (nextTok == KLEENE_STAR){
 			i++;
 			assert(out);
 			if(last_out == nullptr){
@@ -231,37 +246,33 @@ std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i ){
 					mo->after_or_right = std::make_shared<MatcherOperator>(&KLEENE_STAR, mo->after_or_right);
 				}
 			}
-		} else if (nextToken(str, i) == UNION){
-			auto p = _parse(str, i+UNION.length());
+		} else if (nextTok == UNION){
+			auto p = _parse(str, i+UNION.length(), end);
 			i = p.second;
 			last_out = out;
 			out = std::make_shared<MatcherOperator>(&UNION, out, p.first);
-		} else if(nextToken(str, i) == SUBTREE){
+		} else if(nextTok == SUBTREE){
 			i++;
 			last_out = out;
 			auto tmp = std::make_shared<TreeMatcher>(&SUBTREE);
 			tmp->matching_group = matcher_group++;
 			//std::cout << "SUBTREE CREATE: " << tmp->matching_group << '\n';
 			out = joinMatcher(out, tmp);
-		} else if(nextToken(str, i) == SUBREGEX_OPEN){
+		} else if(nextTok == SUBREGEX_OPEN){
 			int tmp_matcher = matcher_group++;
-			auto p = _parse(str, i+SUBREGEX_OPEN.length());
+			auto p = _parse(str, i+SUBREGEX_OPEN.length(), &SUBREGEX_CLOSE);
 			i = p.second;
-			i = assertAndEatNextToken(str, i, SUBREGEX_CLOSE);
+			i = assertAndEatNextToken(str, i, SUBREGEX_CLOSE, &SUBREGEX_CLOSE);
 			p.first->matching_group = tmp_matcher;
 			last_out = out;
 			out = joinMatcher(out, p.first);
-		} else if(nextToken(str, i) == SUBREGEX_CLOSE ||
-			nextToken(str, i) == CONTEXT_CLOSE ||
-			nextToken(str, i) == EXACT_CLOSE){
-			break;
-		} else if(nextToken(str, i) == CHAR_CLASS_OPEN){
+		} else if(nextTok == CHAR_CLASS_OPEN){
 			auto p = parse_char_set(str, i+CHAR_CLASS_OPEN.length());
 			i=p.second;
-			i = assertAndEatNextToken(str, i, CHAR_CLASS_CLOSE);
+			i = assertAndEatNextToken(str, i, CHAR_CLASS_CLOSE, nullptr);
 			last_out = out;
 			out = joinMatcher(out, p.first);
-		} else if(nextToken(str, i) == ALL_CHARS){
+		} else if(nextTok == ALL_CHARS){
 				last_out = out;
 				auto tmp = std::make_shared<CharacterSetMatcher>();
 				tmp->negation = true;
@@ -270,17 +281,18 @@ std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i ){
 		} else {
 			// semi-hack to save on space
 			/*if(std::shared_ptr<StringMatcher> out_str = (out)->toStringMatcher()){
-				std::string tok = nextToken(str, i);
+				std::string tok = nextTok;
 				out_str->addToken(tok);
 				i+=tok.length();
 			} else*/ {
-				std::string tok = nextToken(str, i);
+				std::string tok = nextTok;
 				last_out = out;
 				out = joinMatcher(out, std::make_shared<StringMatcher>(tok));
 				i+=tok.length();
 			}
 		}
 	}
+	//std::cerr << "END:" << i << '\n';
 	if(!out){
 		last_out = out;
 		out = EpsilonMatcher::get();
@@ -292,7 +304,7 @@ std::pair<std::shared_ptr<Matcher>,int> __parse(const std::string& str, int i ){
 namespace treeregex {
 std::shared_ptr<Matcher> parse(const std::string& str){
 	matcher_group = 1;
-	auto p = _parse(str);
+	auto p = _parse(str, 0, nullptr);
 	assert(p.second == str.length() && "Parsing finished, but characters remained!");
 	//std::cout << "CAPTURES: " << matcher_group << '\n';
 	return p.first;
